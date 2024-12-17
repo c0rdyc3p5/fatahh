@@ -1,0 +1,20 @@
+[package]
+name = "fatahh"
+version = "1.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.5.20", features = ["derive"] }
+mimalloc = "0.1.43"
+tabled = "0.16.0"
+walkdir = "2.5.0"
+
+[build]
+rustflags = ["-C", "target-cpu=native", "-C", "link-arg=-fuse-ld=lld", "-Z", "threads=8"]
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = 'abort'
+strip = "symbols"
