@@ -54,38 +54,28 @@ impl FileCollection {
         if self.files.len() < self.max_size {
             self.files.push(file);
             if self.files.len() == self.max_size {
-                // Sort only once at full capacity
+                // Sort once at full capacity
                 self.files.sort_by(|a, b| b.size.cmp(&a.size));
             }
         } else {
-            // Only perform binary search if the collection is full
-            if let Some(index) = self.binary_search(&file.size) {
+            // Perform binary search and insert if collection is full
+            if let Some(index) = self.find_insert_position(&file.size) {
                 self.files.insert(index, file);
-                self.files.pop(); // Remove the smallest file
+                self.files.pop(); // Remove the smallest file to maintain size limit
             }
         }
     }
 
-    fn binary_search(&self, target_size: &u64) -> Option<usize> {
-        let mut low = 0;
-        let mut high = self.files.len();
-
-        // Check if the target size is smaller than the smallest file size
-        if self.files.is_empty() || target_size < &self.files[high - 1].size {
+    fn find_insert_position(&self, target_size: &u64) -> Option<usize> {
+        // Return None if the size is smaller than the smallest file
+        if self.files.is_empty() || *target_size < self.files[self.files.len() - 1].size {
             return None;
         }
 
-        while low != high {
-            let mid = (low + high) / 2;
-
-            match self.files[mid].size.cmp(target_size) {
-                std::cmp::Ordering::Equal => return Some(mid),
-                std::cmp::Ordering::Less => high = mid,
-                std::cmp::Ordering::Greater => low = mid + 1,
-            }
+        // Use binary search for efficiency
+        match self.files.binary_search_by(|file| file.size.cmp(target_size).reverse()) {
+            Ok(pos) | Err(pos) => Some(pos),
         }
-
-        Some(low)
     }
 }
 
@@ -126,7 +116,6 @@ fn format_size(bytes: usize, with_decimals: bool) -> String {
 }
 
 fn main() {
-    let runtime_start = Instant::now();
     let args = Args::parse();
 
     // If no path is set (empty string), use the current directory
@@ -152,6 +141,7 @@ fn main() {
         return;
     }
 
+    let runtime_start = Instant::now();
     let mut files: Vec<FileData> = Vec::new();
     for entry in WalkDir::new(&path_str) {
         if let Ok(entry) = entry {
@@ -204,6 +194,7 @@ fn main() {
             )
         })
         .collect();
+    let runtime_end = runtime_start.elapsed();
 
     let table = Table::new(&tabled_files)
         .with(Style::psql())
@@ -213,6 +204,6 @@ fn main() {
 
     println!("{}", table);
 
-    let end_message = format!("Found the fattest {} files in {:?}", args.count, runtime_start.elapsed());
+    let end_message = format!("Found the fattest {} files in {:.2}s", args.count, runtime_end.as_secs_f64());
     println!("{}", end_message);
 }
