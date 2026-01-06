@@ -76,32 +76,57 @@ fn format_size(bytes: u64) -> String {
 }
 
 fn walk_dir_parallel(path: PathBuf, max_count: usize) -> FileCollection {
-    let mut local = FileCollection::new(max_count);
+    let mut local_collection = FileCollection::new(max_count);
 
     let entries = match fs::read_dir(&path) {
         Ok(e) => e,
-        Err(_) => return local,
+        Err(_) => return local_collection,
     };
 
     let mut subdirs = Vec::new();
+    let mut file_batch = Vec::with_capacity(256);
 
     for entry in entries.flatten() {
         if let Ok(ft) = entry.file_type() {
             if ft.is_dir() {
                 subdirs.push(entry.path());
-            } else if let Ok(meta) = entry.metadata() {
-                let size = meta.len();
-                if size > 0 {
-                    local.smart_insert(FileData {
-                        path: entry.path().to_string_lossy().into_owned(),
-                        size,
-                    });
+            } else if ft.is_file() {
+                if let Ok(meta) = entry.metadata() {
+                    let size = meta.len();
+                    if size > 0 {
+                        file_batch.push(FileData {
+                            path: entry.path().to_string_lossy().into_owned(),
+                            size,
+                        });
+                    }
                 }
+            }
+        }
+
+        if file_batch.len() >= 256 {
+            file_batch.sort_unstable_by(|a, b| b.size.cmp(&a.size));
+
+            // If our smallest found file is already bigger than the batch's biggest,
+            if local_collection.files.len() == max_count {
+                if let Some(last) = local_collection.files.last() {
+                    if file_batch[0].size <= last.size {
+                        file_batch.clear();
+                        continue;
+                    }
+                }
+            }
+
+            for file in file_batch.drain(..) {
+                local_collection.smart_insert(file);
             }
         }
     }
 
-    let merged = subdirs
+    for file in file_batch {
+        local_collection.smart_insert(file);
+    }
+
+    let merged_subdirs = subdirs
         .into_par_iter()
         .map(|dir| walk_dir_parallel(dir, max_count))
         .reduce(
@@ -112,8 +137,8 @@ fn walk_dir_parallel(path: PathBuf, max_count: usize) -> FileCollection {
             },
         );
 
-    local.merge(merged);
-    local
+    local_collection.merge(merged_subdirs);
+    local_collection
 }
 
 fn main() {
